@@ -5,6 +5,6 @@ module.exports = {
   WEBHOOK_URL: 'https://hooks.slack.com/services/...',
   WEBHOOK_CONTENT_FIELD: 'text',
   NUCLINO_APP_ID: '...',
-  NUCLINO_BRAIN_ID: '...',
+  NUCLINO_TEAM_ID: '...',
   NUCLINO_TEAM: 'MyTeamName',
 };

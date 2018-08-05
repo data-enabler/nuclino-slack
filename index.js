@@ -7,11 +7,11 @@ const {
   WEBHOOK_URL,
   WEBHOOK_CONTENT_FIELD,
   NUCLINO_APP_ID,
-  NUCLINO_BRAIN_ID,
+  NUCLINO_TEAM_ID,
   NUCLINO_TEAM,
 } = require('./config.js');
 
-const NOTIFICATION_DELAY = 30 * 1000;
+const NOTIFICATION_DELAY = 60 * 1000;
 
 function getHeaders(token) {
   return {
@@ -20,10 +20,10 @@ function getHeaders(token) {
   };
 }
 
-function createBackup(token) {
+function createBrainBackup(token, brainId) {
   console.log('Create backup');
   fetch(
-    `https://files.nuclino.com/export/brains/${NUCLINO_BRAIN_ID}.zip?format=md`,
+    `https://files.nuclino.com/export/brains/${brainId}.zip?format=md`,
     {
       method: 'GET',
       headers: getHeaders(token),
@@ -56,19 +56,36 @@ function updateToken() {
     });
 }
 
-const visited = new Set();
-function traverseTree(connection, id) {
-  if (visited.has(id)) {
-    return;
-  }
-  visited.add(id);
-  subscribeCell(connection, id, cell => {
-    cell.data.childIds.map(id => traverseTree(connection, id));
+function subscribeTeam(connection) {
+  const team = connection.get('ot_team', NUCLINO_TEAM_ID);
+
+  team.subscribe();
+  team.on('load', () => {
+    console.log('team:', team.data);
+    for (let member of team.data.members) {
+      loadMemberData(connection, member.id);
+    }
+    cells.clear();
+    console.log('##############');
+    for (let brainId of team.data.brains) {
+      subscribeBrain(connection, brainId)
+    }
   });
 }
 
-function subscribeBrain(connection) {
-  const brain = connection.get('ot_brain', NUCLINO_BRAIN_ID);
+const members = {};
+function loadMemberData(connection, memberId) {
+  const member = connection.get('ot_user', memberId);
+
+  member.subscribe();
+  member.on('load', () => {
+    console.log('member:', member.data);
+    members[memberId] = member.data;
+  });
+}
+
+function subscribeBrain(connection, brainId) {
+  const brain = connection.get('ot_brain', brainId);
 
   brain.subscribe();
   brain.on('load', () => {
@@ -77,7 +94,16 @@ function subscribeBrain(connection) {
   });
 }
 
-const cells = {};
+function traverseTree(connection, id) {
+  if (cells[id]) {
+    return;
+  }
+  subscribeCell(connection, id, cell => {
+    cell.data.childIds.map(id => traverseTree(connection, id));
+  });
+}
+
+const cells = new Map();
 function subscribeCell(connection, id, cb) {
   const cell = connection.get('ot_cell', id);
   cell.subscribe();
@@ -153,10 +179,10 @@ function getSummary(cell, op) {
     return `Moved from position \`${from}\` to \`${to}\` in cluster \`${parent.name}\``;
   }
   if (field === 'memberIds' && op.li != null) {
-    return `Added member`;
+    return `Added member ${getMemberData(op.li) || ''}`;
   }
   if (field === 'memberIds' && op.ld != null) {
-    return `Removed member`;
+    return `Removed member ${getMemberData(op.ld) || ''}`;
   }
   if (field === 'title') {
     return `Title changed`;
@@ -177,7 +203,9 @@ function notify(update) {
     body: JSON.stringify(body),
   })
   .then((resp) => {
-    if (!resp.ok) {
+    if (resp.ok) {
+      console.log(`Sent notification for ${update.cellId}`)
+    } else {
       console.error(resp);
     }
   })
@@ -205,8 +233,13 @@ function getCellData(id) {
     id: id,
     name: doc.data.title || 'Untitled',
     type: kindMapping[doc.data.kind],
-    link: `https://app.nuclino.com/${NUCLINO_TEAM}/General/${id}`,
+    link: `https://app.nuclino.com/${NUCLINO_TEAM}/_/${id}`,
   };
+}
+
+function getMemberData(id) {
+  const m = members[id];
+  return m ? `${m.firstName} ${m.lastName[0]}.` : null;
 }
 
 function removeDuplicates(array) {
@@ -217,8 +250,6 @@ let killProcess = null;
 async function startWatching() {
   const token = await updateToken();
 
-  createBackup(token);
-
   const socket = new WebSocket('wss://api.nuclino.com/syncing', {
     headers: getHeaders(token),
   });
@@ -227,7 +258,7 @@ async function startWatching() {
   connection.on('state', state => {
     console.log(`new connection state: ${state}`);
     if (state === 'connected') {
-      subscribeBrain(connection);
+      subscribeTeam(connection);
     } else if (state === 'disconnected') {
       startWatching();
     }
