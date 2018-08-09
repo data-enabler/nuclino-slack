@@ -66,7 +66,6 @@ function subscribeTeam(connection) {
       loadMemberData(connection, member.id);
     }
     cells.clear();
-    console.log('##############');
     for (let brainId of team.data.brains) {
       subscribeBrain(connection, brainId)
     }
@@ -95,7 +94,7 @@ function subscribeBrain(connection, brainId) {
 }
 
 function traverseTree(connection, id) {
-  if (cells[id]) {
+  if (cells.has(id)) {
     return;
   }
   subscribeCell(connection, id, cell => {
@@ -108,7 +107,7 @@ function subscribeCell(connection, id, cb) {
   const cell = connection.get('ot_cell', id);
   cell.subscribe();
   console.log(`subscribed to cell ${id}`);
-  cells[id] = cell;
+  cells.set(id, cell);
   cell.on('op', (ops, source) => {
     console.log('op', cell.id, ops);
     scheduleNotification(cell, ops[0]);
@@ -122,7 +121,7 @@ const pending = {};
 function scheduleNotification(cell, op) {
   const id = getTargetId(cell, op);
   let newCell = false;
-  if (!cells[id]) {
+  if (!cells.has(id)) {
     newCell = true;
     subscribeCell(cell.connection, id);
   }
@@ -228,7 +227,7 @@ function getCellData(id) {
     'PARENT': 'Cluster',
     'LEAF': 'Item',
   };
-  let doc = cells[id];
+  let doc = cells.get(id);
   return {
     id: id,
     name: doc.data.title || 'Untitled',
@@ -248,7 +247,11 @@ function removeDuplicates(array) {
 
 let killProcess = null;
 async function startWatching() {
-  const token = await updateToken();
+  const token = await updateToken()
+  .catch((err) => {
+    console.log('Error updating token:', err);
+    process.exit(1);
+  })
 
   const socket = new WebSocket('wss://api.nuclino.com/syncing', {
     headers: getHeaders(token),
