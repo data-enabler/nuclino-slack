@@ -172,8 +172,8 @@ function getSummary(cell, op) {
     return `Removed from cluster \`${parent.name}\``;
   }
   if (field === 'childIds' && op.lm != null) {
-    const from = op.p[1];
-    const to = op.lm;
+    const from = op.p[1] + 1;
+    const to = op.lm + 1;
     const parent = getCellData(cell.id)
     return `Moved from position \`${from}\` to \`${to}\` in cluster \`${parent.name}\``;
   }
